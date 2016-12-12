@@ -866,3 +866,163 @@ static void ExpectChange(id self, NSArray *deletions, NSArray *insertions, NSArr
 }
 
 @end
+
+#undef ExpectChange
+#undef ExpectNoChange
+
+@interface ObjectNotifierTests : RLMTestCase
+@end
+
+@implementation ObjectNotifierTests {
+    NSArray *_initialValues;
+    NSArray *_values;
+    NSArray<NSString *> *_propertyNames;
+    AllTypesObject *_obj;
+}
+
+- (void)setUp {
+    NSDate *now = [NSDate date];
+    StringObject *so = [[StringObject alloc] init];
+    so.stringCol = @"string";
+    _initialValues = @[@YES, @1, @1.1f, @1.11, @"string",
+                       [NSData dataWithBytes:"a" length:1], now, @YES, @11, NSNull.null];
+    _values = @[@NO, @2, @2.2f, @2.22, @"string2", [NSData dataWithBytes:"b" length:1],
+                [now dateByAddingTimeInterval:1], @NO, @22, so];
+
+    RLMRealm *realm = [RLMRealm defaultRealm];
+    [realm beginWriteTransaction];
+    _obj = [AllTypesObject createInRealm:realm withValue:_initialValues];
+    [realm commitWriteTransaction];
+
+    _propertyNames = [_obj.objectSchema.properties valueForKey:@"name"];
+}
+
+- (void)testDeleteObservedObject {
+    XCTestExpectation *expectation = [self expectationWithDescription:@""];
+    RLMNotificationToken *token = [_obj addNotificationBlock:^(RLMObjectChange *change) {
+        XCTAssertTrue(change.deleted);
+        XCTAssertNil(change.error);
+        XCTAssertNil(change.changes);
+        [expectation fulfill];
+    }];
+
+    RLMRealm *realm = _obj.realm;
+    [realm beginWriteTransaction];
+    [realm deleteObject:_obj];
+    [realm commitWriteTransaction];
+
+    [self waitForExpectationsWithTimeout:2.0 handler:nil];
+    [token stop];
+}
+
+- (void)testChangeAllPropertyTypes {
+    __block NSUInteger i = 0;
+    __block XCTestExpectation *expectation = nil;
+    RLMNotificationToken *token = [_obj addNotificationBlock:^(RLMObjectChange *change) {
+        XCTAssertFalse(change.deleted);
+        XCTAssertNil(change.error);
+        XCTAssertEqual(change.changes.count, 1U);
+        RLMPropertyChange *prop = change.changes[0];
+        XCTAssertEqualObjects(prop.name, _propertyNames[i]);
+        XCTAssertNil(prop.previousValue);
+        if ([prop.name isEqualToString:@"objectCol"]) {
+            XCTAssertTrue([prop.value isEqualToObject:_values[i]]);
+        }
+        else {
+            XCTAssertEqualObjects(prop.value, _values[i]);
+        }
+
+        [expectation fulfill];
+    }];
+
+    for (i = 0; i < _values.count; ++i) {
+        expectation = [self expectationWithDescription:@""];
+
+        [_obj.realm beginWriteTransaction];
+        _obj[_propertyNames[i]] = _values[i];
+        [_obj.realm commitWriteTransaction];
+
+        [self waitForExpectationsWithTimeout:2.0 handler:nil];
+    }
+    [token stop];
+}
+
+- (void)testChangeAllPropertyTypesFromBackground {
+    __block NSUInteger i = 0;
+    __block XCTestExpectation *expectation = nil;
+    RLMNotificationToken *token = [_obj addNotificationBlock:^(RLMObjectChange *change) {
+        XCTAssertFalse(change.deleted);
+        XCTAssertNil(change.error);
+        XCTAssertEqual(change.changes.count, 1U);
+        RLMPropertyChange *prop = change.changes[0];
+        XCTAssertEqualObjects(prop.name, _propertyNames[i]);
+        if ([prop.name isEqualToString:@"objectCol"]) {
+            XCTAssertNil(prop.previousValue);
+            XCTAssertNotNil(prop.value);
+        }
+        else {
+            XCTAssertEqualObjects(prop.previousValue, _initialValues[i]);
+            XCTAssertEqualObjects(prop.value, _values[i]);
+        }
+
+        [expectation fulfill];
+    }];
+
+    for (i = 0; i < _values.count; ++i) {
+        expectation = [self expectationWithDescription:@""];
+
+        dispatch_async(dispatch_get_global_queue(0, 0), ^{
+            @autoreleasepool {
+                RLMRealm *realm = [RLMRealm defaultRealm];
+                AllTypesObject *obj = [[AllTypesObject allObjectsInRealm:realm] firstObject];
+                [realm beginWriteTransaction];
+                obj[_propertyNames[i]] = _values[i];
+                [realm commitWriteTransaction];
+            }
+        });
+
+        [self waitForExpectationsWithTimeout:2.0 handler:nil];
+    }
+    [token stop];
+}
+
+- (void)testChangeAllPropertyTypesInSingleTransaction {
+    XCTestExpectation *expectation = [self expectationWithDescription:@""];
+    RLMNotificationToken *token = [_obj addNotificationBlock:^(RLMObjectChange *change) {
+        XCTAssertFalse(change.deleted);
+        XCTAssertNil(change.error);
+        XCTAssertEqual(change.changes.count, _values.count);
+
+        NSUInteger i = 0;
+        for (RLMPropertyChange *prop in change.changes) {
+            XCTAssertEqualObjects(prop.name, _propertyNames[i]);
+            if ([prop.name isEqualToString:@"objectCol"]) {
+                XCTAssertTrue([prop.value isEqualToObject:_values[i]]);
+            }
+            else {
+                XCTAssertEqualObjects(prop.value, _values[i]);
+            }
+            ++i;
+        }
+        [expectation fulfill];
+    }];
+
+    [_obj.realm beginWriteTransaction];
+    for (NSUInteger i = 0; i < _values.count; ++i) {
+        _obj[_propertyNames[i]] = _values[i];
+    }
+    [_obj.realm commitWriteTransaction];
+
+    [self waitForExpectationsWithTimeout:2.0 handler:nil];
+    [token stop];
+}
+
+- (void)testMultipleObjectNotifiers {
+
+}
+
+- (void)testSomethingOrOtherWithArrayProperties {
+
+}
+
+@end

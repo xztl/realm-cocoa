@@ -439,6 +439,59 @@ class ObjectTests: TestCase {
         XCTAssertEqual(data, object.dataCol)
         XCTAssertEqual(42, object.numCol)
     }
+
+    func testDeleteObservedObject() {
+        let realm = try! Realm()
+        realm.beginWrite()
+        let object = realm.create(SwiftIntObject.self, value: [0])
+        try! realm.commitWrite()
+
+        let exp = expectation(description: "")
+        let token = object.addNotificationBlock { change in
+            if case .deleted = change { }
+            else {
+                XCTFail("expected .deleted, got \(change)")
+            }
+            exp.fulfill()
+        }
+
+        realm.beginWrite()
+        realm.delete(object)
+        try! realm.commitWrite()
+
+        waitForExpectations(timeout: 2)
+        token.stop()
+    }
+
+    func testModifyObservedObject() {
+        let realm = try! Realm()
+        realm.beginWrite()
+        let object = realm.create(SwiftIntObject.self, value: [1])
+        try! realm.commitWrite()
+
+        let exp = expectation(description: "")
+        let token = object.addNotificationBlock { change in
+            if case .change(let properties) = change {
+                XCTAssertEqual(properties.count, 1)
+                if let prop = properties.first {
+                    XCTAssertEqual(prop.name, "intCol")
+//                    XCTAssertEqual(prop.oldValue, 1)
+//                    XCTAssertEqual(prop.newValue, 2)
+                }
+            }
+            else {
+                XCTFail("expected .change, got \(change)")
+            }
+            exp.fulfill()
+        }
+
+        realm.beginWrite()
+        object.intCol = 2;
+        try! realm.commitWrite()
+
+        waitForExpectations(timeout: 2)
+        token.stop()
+    }
 }
 
 #else
