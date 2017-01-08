@@ -71,7 +71,7 @@ public struct SortDescriptor {
         return SortDescriptor(keyPath: keyPath, ascending: !ascending)
     }
 
-    @available(*, unavailable, renamed: "keyPath")
+    @available(*, deprecated, renamed: "keyPath")
     public var property: String { return keyPath }
 }
 
@@ -179,7 +179,7 @@ public struct SortDescriptor {
         return SortDescriptor(keyPath: keyPath, ascending: !ascending)
     }
 
-    @available(*, unavailable, renamed="keyPath")
+    @available(*, deprecated, renamed="keyPath")
     public var property: String { return keyPath }
 }
 
